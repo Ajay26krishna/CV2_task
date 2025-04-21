@@ -113,10 +113,10 @@ class Transformer(nn.Module):
             x = block(x)
         x = self.transformer.ln_f(x)
 
-        logits = self.output_proj(x)  # shape: (b, t, latent_dim)
+        logits = self.output_proj(x)  # (B, T, latent_dim)
 
         loss = None
         if targets is not None:
-            loss = F.mse_loss(logits, targets)
+            loss = F.mse_loss(logits[:, -1], targets)  # Only last step prediction is compared
 
         return logits, loss

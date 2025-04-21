@@ -7,8 +7,34 @@ from human_body_prior.models.vposer_model import VPoser
 from human_body_prior.body_model.body_model import BodyModel
 from os import path as osp
 from models.transformer import Transformer, Config
+from torch.optim import AdamW
+from tqdm import tqdm
 
+def train_epoch(model, dataloader, optimizer, device):
+    model.train()
+    total_loss = 0.0
+    loop = tqdm(dataloader, desc="Training", leave=False)
+    for x, y in loop:
+        x, y = x.to(device), y.to(device)
+        optimizer.zero_grad()
+        _, loss = model(x, y)
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+        loop.set_postfix(loss=loss.item())
+    return total_loss / len(dataloader)
 
+def eval_epoch(model, dataloader, device):
+    model.eval()
+    total_loss = 0.0
+    loop = tqdm(dataloader, desc="Validation", leave=False)
+    with torch.no_grad():
+        for x, y in loop:
+            x, y = x.to(device), y.to(device)
+            _, loss = model(x, y)
+            total_loss += loss.item()
+            loop.set_postfix(loss=loss.item())
+    return total_loss / len(dataloader)
 #Loading SMPLx Body Model
 
 support_dir = r'C:\Users\shasi\Downloads\cv2_term_project\VPoserModelFiles\\'
@@ -53,19 +79,42 @@ test_data_dir = r'C:\Users\shasi\Downloads\cv2_term_project\data\AMASS_CMUsubset
 # )
 
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-config = Config()
-model = Transformer(config).to(device)
-
-train_loader = get_dataloader(train_data_dir, vp, device, seq_len=64, pred_step=1, batch_size=32)
-val_loader = get_dataloader(test_data_dir, vp, device, seq_len=64, pred_step=1, batch_size=32, shuffle=False)
-
-for batch in train_loader:
-    x, y = batch
-    x, y = x.to(device), y.to(device)
-    pred, loss = model(x, y)
-    print("Train batch loss:", loss.item())
-    break
+# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# config = Config()
+# model = Transformer(config).to(device)
 
 
+def main():
+    # Configuration
+    seq_len = 64
+    pred_step = 1
+    batch_size = 64
+    epochs = 30
+    lr = 3e-4
 
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Load model and data
+    config = Config()
+    model = Transformer(config).to(device)
+
+    train_loader = get_dataloader(train_data_dir, vp, device, seq_len, pred_step, batch_size, shuffle=True)
+    val_loader = get_dataloader(test_data_dir, vp, device, seq_len, pred_step, batch_size, shuffle=False)
+
+    optimizer = AdamW(model.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+
+    for epoch in range(epochs):
+        train_loss = train_epoch(model, train_loader, optimizer, device)
+        val_loss = eval_epoch(model, val_loader, device)
+        scheduler.step()
+
+        print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f}")
+
+    torch.save(model.state_dict(), "latent_transformer.pth")
+    print("Training complete and model saved.")
+
+
+
+if __name__ == '__main__':
+    main()
