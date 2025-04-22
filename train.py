@@ -9,6 +9,8 @@ from os import path as osp
 from models.transformer import Transformer, Config
 from torch.optim import AdamW
 from tqdm import tqdm
+from evaluate import run_evaluation
+
 
 def train_epoch(model, dataloader, optimizer, device):
     model.train()
@@ -89,8 +91,8 @@ def main():
     seq_len = 64
     pred_step = 1
     batch_size = 64
-    epochs = 30
-    lr = 3e-4
+    epochs = 10
+    lr = 1e-4
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -113,7 +115,8 @@ def main():
 
     torch.save(model.state_dict(), "latent_transformer.pth")
     print("Training complete and model saved.")
-
+    print('running evaluation')
+    run_evaluation(model,test_data_dir, vp, bm, device, SEQ_LEN=64)
 
 
 if __name__ == '__main__':
