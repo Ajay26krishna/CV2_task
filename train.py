@@ -12,19 +12,39 @@ from tqdm import tqdm
 from evaluate import run_evaluation
 
 
-def train_epoch(model, dataloader, optimizer, device):
+def train_epoch(model, dataloader, optimizer, device, vposer, smpl):
     model.train()
     total_loss = 0.0
     loop = tqdm(dataloader, desc="Training", leave=False)
-    for x, y in loop:
-        x, y = x.to(device), y.to(device)
+
+    for x, latent_targets, pose_targets in loop:
+        x, latent_targets, pose_targets = x.to(device), latent_targets.to(device), pose_targets.to(device)
+
         optimizer.zero_grad()
-        _, loss = model(x, y)
+        pred_latents, _ = model(x)  # ignore latent loss
+
+        # Decode predicted latents to body pose using VPoser
+        pred_pose = vposer.decode(pred_latents[:, -1])['pose_body']  # (B, 63)
+
+        # Flatten and get joints from SMPL
+        smpl_output = smpl(body_pose=pred_pose)
+        pred_joints = smpl_output.joints[:, :24]  # (B, 24, 3)
+
+        # Get ground truth joints from pose_targets via SMPL
+        with torch.no_grad():
+            gt_smpl = smpl(body_pose=pose_targets[:, 0])  # assume 1-step target
+            gt_joints = gt_smpl.joints[:, :24]
+
+        # Compute MPJPE loss
+        loss = torch.norm(pred_joints - gt_joints, dim=-1).mean()
+
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
         loop.set_postfix(loss=loss.item())
+
     return total_loss / len(dataloader)
+
 
 def eval_epoch(model, dataloader, device):
     model.eval()
@@ -38,53 +58,43 @@ def eval_epoch(model, dataloader, device):
             loop.set_postfix(loss=loss.item())
     return total_loss / len(dataloader)
 #Loading SMPLx Body Model
+#filenames for loading VPoser VAE network, neutral SMPL body model, AMASS sample data
 
-support_dir = r'C:\Users\shasi\Downloads\cv2_term_project\VPoserModelFiles\\'
-bm_fname =  osp.join(support_dir,'smplx_neutral_model.npz')   
+from os import path as osp
+
+support_dir = '/content/gdrive/MyDrive/VPoserModelFiles/'
+
+expr_dir = osp.join(support_dir,'vposer_v2_05/') #'TRAINED_MODEL_DIRECTORY'
+bm_fname =  osp.join(support_dir,'smplx_neutral_model.npz')    #'PATH_TO_SMPLX_model.npz'  neutral smpl body model
+sample_amass_fname = osp.join(support_dir, 'amass_sample.npz')  # a sample npz file from AMASS
+
+
+print(expr_dir)
+print(bm_fname)
+print(sample_amass_fname)
+
+# ==== Load VPoser from .ckpt with manually created config ====
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print('device is', device)
 
+from human_body_prior.body_model.body_model import BodyModel
 bm = BodyModel(bm_fname=bm_fname).to(device)
-expr_dir = osp.join(support_dir,'vposer_v2_05/') #'TRAINED_MODEL_DIRECTORY'
 
+#Loading VPoser VAE Body Pose Prior
+from human_body_prior.tools.model_loader import load_model
+from human_body_prior.models.vposer_model import VPoser
 
-# ==== Load VPoser from .ckpt with manually created config ====
-
-
-ckpt_path = os.path.join(expr_dir, 'snapshots', 'V02_05_epoch=13_val_loss=0.03.ckpt')
-ckpt = torch.load(ckpt_path, map_location=device)
-vp_cfg = OmegaConf.create({
-    'model_params': {
-        'num_neurons': 512,
-        'num_layers': 2,
-        'latentD': 32
-    }
-})
-
-vp = VPoser(vp_cfg)
-vp.load_state_dict(ckpt['state_dict'], strict=False)
-print(vp.eval())
-vp.to(device)
+vp, ps = load_model(expr_dir, model_code=VPoser,
+                              remove_words_in_model_weights='vp_model.',
+                              disable_grad=True,
+                              comp_device=device)
+vp = vp.to(device)
 
 
 
 
-train_data_dir = r'C:\Users\shasi\Downloads\cv2_term_project\data\AMASS_CMUsubset\test'
-test_data_dir = r'C:\Users\shasi\Downloads\cv2_term_project\data\AMASS_CMUsubset\train'
-# dataloader = get_dataloader(
-#     data_dir=data_root,
-#     vp_model=vp,
-#     device=device,
-#     seq_len=64,
-#     pred_step=1,
-#     batch_size=32
-# )
-
-
-# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-# config = Config()
-# model = Transformer(config).to(device)
-
+train_data_dir =  '/content/gdrive/MyDrive/AMASS_CMUsubset/test/'
+test_data_dir = '/content/gdrive/MyDrive/AMASS_CMUsubset/train/'
 
 def main():
     # Configuration
@@ -107,7 +117,7 @@ def main():
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     for epoch in range(epochs):
-        train_loss = train_epoch(model, train_loader, optimizer, device)
+        train_loss = train_epoch(model, train_loader, optimizer, device, vp, bm)
         val_loss = eval_epoch(model, val_loader, device)
         scheduler.step()
 

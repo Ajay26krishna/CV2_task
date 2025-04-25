@@ -74,7 +74,7 @@ class Block(nn.Module):
         return x
 class Config:
     block_size = 64      # SEQ_LEN
-    latent_dim = 32      # VPoser latent size
+    latent_dim = 32      # VPoer latent size
     n_layer = 6
     n_embd = 256
     n_head = 8
@@ -115,8 +115,4 @@ class Transformer(nn.Module):
 
         logits = self.output_proj(x)  # (B, T, latent_dim)
 
-        loss = None
-        if targets is not None:
-            loss = F.mse_loss(logits[:, -1], targets)  # Only last step prediction is compared
-
-        return logits, loss
+        return logits, None

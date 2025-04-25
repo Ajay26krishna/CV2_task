@@ -68,12 +68,12 @@ def run_evaluation(model, latent_data, vp, bm, device, SEQ_LEN=64, result_dir="r
     mesh = trimesh.base.Trimesh(verts, faces)
 
     
-    # n_pred_frames = prediction.shape[0]
-    # original_pose = latent_data[100+SEQ_LEN:100+SEQ_LEN+n_pred_frames].to(device)
-    # # breakpoint()1
-    # original_mesh = bm(pose_body=original_pose)
-    # verts_orig = original_mesh.v[0].detach().cpu().numpy()
-    # mesh_orig = trimesh.base.Trimesh(verts_orig, faces, vertex_colors=[128, 0, 128, 255])  
+    n_pred_frames = prediction.shape[0]
+    original_pose = latent_data[100+SEQ_LEN:100+SEQ_LEN+n_pred_frames].to(device)
+    # breakpoint()1
+    original_mesh = bm(pose_body=original_pose)
+    verts_orig = original_mesh.v[0].detach().cpu().numpy()
+    mesh_orig = trimesh.base.Trimesh(verts_orig, faces, vertex_colors=[128, 0, 128, 255])  
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     mesh_reco_path = os.path.join(result_dir, f"transformer_predicted_mesh_{timestamp}.ply")
